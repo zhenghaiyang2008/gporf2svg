@@ -3124,7 +3124,7 @@ class DotWriter:
                    fontsize = "%.2f" % theme.edge_fontsize(weight), 
                    penwidth = "%.2f" % theme.edge_penwidth(edgewidth), 
                    labeldistance = "%.2f" % theme.edge_labeldistance(weight), 
-                    arrowsize = "%.2f" % theme.edge_arrowsize(weight),
+                    arrowsize = "%.2f" % theme.edge_arrowsize(edgewidth),
                 )
 
         self.end_graph()
