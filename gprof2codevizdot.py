@@ -287,8 +287,7 @@ class Profile(Object):
         self.functions = {}
         self.cycles = []
         self.ignorelist = {}
-        #self.showrelist = {}
-
+        
     def add_function(self, function):
         if function.id in self.functions:
             sys.stderr.write('warning: overwriting function %s (id %s)\n' % (function.name, str(function.id)))
@@ -387,6 +386,22 @@ class Profile(Object):
             if self.functions[f].name == funcName:
                 return f
         return False
+   
+    def setignorefunction(self, function_id):
+        try :
+            self.ignorelist[function_id]
+        except KeyError:
+            self.ignorelist[function_id] = 0
+
+        self.ignorelist[function_id] = self.ignorelist[function_id] - 1
+
+    def resetignorefunction(self, function_id):
+        try :
+            self.ignorelist[function_id]
+        except KeyError:
+            self.ignorelist[function_id] = 0
+
+        self.ignorelist[function_id] = self.ignorelist[function_id] + 1
 
     class _TarjanData:
         def __init__(self, order):
@@ -744,23 +759,6 @@ class Profile(Object):
                     function.weight = function[TIME_RATIO] / max_ratio
                 except (ZeroDivisionError, UndefinedEvent):
                     pass
-    def ignore(self, ignorepattern):
-        fields = re.split(r';', ignorepattern)
-        for field in fields:
-            # ignore the nodes
-            for function_id in compat_keys(self.functions):
-                if re.findall(field,function_id):
-                        self.ignorelist[function_id] = 1
-                        del self.functions[function_id]
-    
-    def showre(self, ignorepattern):
-            fields = re.split(r';', ignorepattern)
-            for field in fields:
-                # ignore the nodes
-                for function_id in compat_keys(self.functions):
-                    if re.findall(field,function_id):
-                        for callee_id in compat_keys(self.functions[function_id].calls):
-                            del self.functions[function_id].calls[callee_id]
 
     def dump(self):
         for function in compat_itervalues(self.functions):
@@ -829,13 +827,45 @@ class Parser:
     stdinInput = True
     multipleInput = False
 
+    _ignorepattern = ""
+    _showrepattern = ""    
+
     def __init__(self):
         pass
 
     def parse(self):
         raise NotImplementedError
 
+    def ignore(self, function_id):
+        if self._ignorepattern == "":return False
+
+        fields = re.split(r';', self._ignorepattern)
+        for field in fields:
+            # ignore the nodes
+            if field == "":continue
+            if re.findall(field,function_id):
+                    return True
+                    
+        return False    
     
+    def showre(self, function_id):
+        if self._showrepattern == "":return False
+
+        fields = re.split(r';', self._showrepattern)
+        for field in fields:
+            # show the nodes
+            if field == "":continue
+            if re.findall(field,function_id):
+                return True
+
+        return False
+
+    def setignorepattern(self, ignorepattern):
+        self._ignorepattern = ignorepattern
+
+    def setshowrepattern(self, showrepattern):
+        self._showrepattern = showrepattern
+
 class JsonParser(Parser):
     """Parser for a custom JSON representation of profile data.
 
@@ -2018,21 +2048,55 @@ class PerfParser(LineParser):
         if not callchain:
             return
 
-        callee = callchain[0]
-        callee[SAMPLES] += 1
+        caller = callchain[0]
         self.profile[SAMPLES] += 1
+        
+        for callee in callchain[1:]:
+            callee_id = callee.id
 
-        for caller in callchain[1:]:
+            #ignoreall = 0
+            #showreall = 0
+
+            #if self.ignore(caller.id):
+            #    ignoreall = 1
+            #    self.profile.setignorefunction(caller.id)
+            #elif self.showre(callee_id):
+            #    showreall = 1
+            
             try:
-                call = caller.calls[callee.id]
+                call = caller.calls[callee_id] 
             except KeyError:
-                call = Call(callee.id)
+                call = Call(callee_id)
                 call[SAMPLES2] = 1
                 caller.add_call(call)
+        
             else:
                 call[SAMPLES2] += 1
+            
+            #if ignoreall or showreall:
+            #    self.profile.setignorefunction(callee_id)
+            #else:
+            #    self.profile.resetignorefunction(callee_id)
 
-            callee = caller
+            caller = callee
+        
+        caller[SAMPLES] += 1
+
+        #callee = callchain[0]
+        #callee[SAMPLES] += 1
+        #self.profile[SAMPLES] += 1
+        #
+        #for caller in callchain[1:]:
+        #    try:
+        #        call = caller.calls[callee.id]
+        #    except KeyError:
+        #        call = Call(callee.id)
+        #        call[SAMPLES2] = 1
+        #        caller.add_call(call)
+        #    else:
+        #        call[SAMPLES2] += 1
+        #
+        #    callee = caller
 
         # Increment TOTAL_SAMPLES only once on each function.
         stack = set(callchain)
@@ -2041,11 +2105,20 @@ class PerfParser(LineParser):
 
     def parse_callchain(self):
         callchain = []
+        callnamechain = []
         while self.lookahead():
             function = self.parse_call()
             if function is None:
                 break
+            callnamechain.append(function.id)
+
+        for idx in range(len(callnamechain) - 1, -1, -1):
+            function = self.profile.functions[callnamechain[idx]]
+            if self.ignore(function.id):break
             callchain.append(function)
+            if self.showre(function.id):break
+
+
         if self.lookahead() == '':
             self.consume()
         return callchain
@@ -2081,7 +2154,7 @@ class PerfParser(LineParser):
             function[SAMPLES] = 0
             function[TOTAL_SAMPLES] = 0
             self.profile.add_function(function)
-
+        
         return function
 
 
@@ -3026,6 +3099,8 @@ class DotWriter:
         self.attr('edge', fontname=fontname)
 
         for _, function in sorted_iteritems(profile.functions):
+            #if profile.ignorelist[function.id] < 0:continue
+
             labels = []
             #if function.process is not None:
                 #labels.append(function.process)
@@ -3073,8 +3148,7 @@ class DotWriter:
             )
 
             for _, call in sorted_iteritems(function.calls):
-                if call.callee_id not in compat_keys(profile.functions):
-                    continue
+                #if profile.ignorelist[call.callee_id] < 0:continue
 
                 callee = profile.functions[call.callee_id]
                 
@@ -3104,6 +3178,107 @@ class DotWriter:
                    labeldistance = "%.2f" % theme.edge_labeldistance(weight), 
                     arrowsize = "%.2f" % theme.edge_arrowsize(weight),
                 )
+
+        self.end_graph()
+
+    
+    # Find every function that is called
+    def printsubgraph(self, profile, theme, root):
+        
+        function = profile.functions[root]
+
+        labels = []
+        #if function.process is not None:
+            #labels.append(function.process)
+        #if function.module is not None:
+            #labels.append(function.module)
+
+        if self.strip:
+            function_id = function.stripped_name()
+        else:
+            function_id = function.name
+
+        # dot can't parse quoted strings longer than YY_BUF_SIZE, which
+        # defaults to 16K. But some annotated C++ functions (e.g., boost,
+        # https://github.com/jrfonseca/gprof2dot/issues/30) can exceed that
+        MAX_FUNCTION_NAME = 4096
+        if len(function_id) >= MAX_FUNCTION_NAME:
+            sys.stderr.write('warning: truncating function name with %u chars (%s)\n' % (len(function_id), function_id[:32] + '...'))
+            function_id = function_id[:MAX_FUNCTION_NAME - 1] + unichr(0x2026)
+
+        if self.wrap:
+            function_id = self.wrap_function_name(function_id)
+        labels.append(function_id)
+
+        for event in self.show_function_events:
+            if event in function.events:
+                label = event.format(function[event])
+                labels.append(label)
+        if function.called is not None:
+            labels.append("%u%s" % (function.called, MULTIPLICATION_SIGN))
+
+        if function.weight is not None:
+            weight = function.weight
+        else:
+            weight = 0.0
+
+        label = '\n'.join(labels)
+        self.node(function.id, 
+            # label = label, 
+            #color = self.color(theme.node_bgcolor(edgecolor)), 
+            color = "white",
+            fontcolor = self.color(theme.node_bgcolor(weight)), 
+            fontsize = "%.2f" % theme.node_fontsize(weight),
+            tooltip = function.filename,
+        )
+
+        for _, call in sorted_iteritems(function.calls):
+            callee = profile.functions[call.callee_id]
+                
+            labels = []
+            for event in self.show_edge_events:
+                if event in call.events:
+                    label = event.format(call[event])
+                    labels.append(label)
+
+            if call.weight is not None:
+                weight = call.weight
+            elif callee.weight is not None:
+                weight = callee.weight
+            else:
+                weight = 0.0
+
+            label = '\n'.join(labels)
+                
+            edgecolor = random.random() 
+            edgewidth = random.uniform(0.1,1.5)
+            self.edge(function.id, call.callee_id, 
+                # label = label, 
+                color = self.color(theme.edge_color(edgecolor)), 
+                fontcolor = self.color(theme.edge_color(edgecolor)),
+                fontsize = "%.2f" % theme.edge_fontsize(weight), 
+                penwidth = "%.2f" % theme.edge_penwidth(edgewidth), 
+                labeldistance = "%.2f" % theme.edge_labeldistance(weight), 
+                arrowsize = "%.2f" % theme.edge_arrowsize(weight),
+            )
+            self.sync()
+            if function_id == call.callee_id:break
+
+            self.printsubgraph(profile, theme, call.callee_id)
+
+    def subgraph(self, profile, theme, roots):
+        self.begin_graph()
+
+        fontname = theme.graph_fontname()
+        fontcolor = theme.graph_fontcolor()
+        nodestyle = theme.node_style()
+
+        self.attr('graph', fontname=fontname, ranksep=0.25, nodesep=0.125,rankdir="LR")
+        self.attr('node', fontname=fontname, shape="box", style=nodestyle, fontcolor=fontcolor, width=0, height=0)
+        self.attr('edge', fontname=fontname)
+        
+        for root in roots:
+            self.printsubgraph(profile, theme, root);
 
         self.end_graph()
 
@@ -3186,6 +3361,8 @@ class DotWriter:
     def write(self, s):
         self.fp.write(s)
 
+    def sync(self):
+        os.fsync(self.fp)
 
 
 ########################################################################
@@ -3336,7 +3513,14 @@ def main():
             optparser.error('exactly one file must be specified for %s input' % options.format)
         parser = Format(args[0])
 
+    if options.ignore:
+        parser.setignorepattern(options.ignore)
+    if options.showre:
+        parser.setshowrepattern(options.showre)
+
     profile = parser.parse()
+
+
 
     if options.output is None:
         if PYTHON_3:
@@ -3357,11 +3541,6 @@ def main():
 
     profile = profile
     profile.prune(options.node_thres/100.0, options.edge_thres/100.0, options.filter_paths, options.color_nodes_by_selftime)
-
-    if options.ignore:
-        profile.ignore(options.ignore)
-    if options.showre:
-        profile.showre(options.showre)
 
     if options.root:
         rootIds = profile.getFunctionIds(options.root)
