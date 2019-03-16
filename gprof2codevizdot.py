@@ -811,7 +811,8 @@ class Parser:
     multipleInput = False
 
     _ignorepattern = ""
-    _showrepattern = ""    
+    _showrepattern = "" 
+    _skiprepattern = ""    
 
     def __init__(self):
         pass
@@ -819,10 +820,10 @@ class Parser:
     def parse(self):
         raise NotImplementedError
 
-    def ignore(self, function_id):
-        if self._ignorepattern == "":return False
+    def isfunctioninpattern(self, function_id, pattern):
+        if pattern == "":return False
 
-        fields = re.split(r';', self._ignorepattern)
+        fields = re.split(r';', pattern)
         for field in fields:
             # ignore the nodes
             if field == "":continue
@@ -831,23 +832,13 @@ class Parser:
                     
         return False    
     
-    def showre(self, function_id):
-        if self._showrepattern == "":return False
-
-        fields = re.split(r';', self._showrepattern)
-        for field in fields:
-            # show the nodes
-            if field == "":continue
-            if re.findall(field,function_id):
-                return True
-
-        return False
-
     def setignorepattern(self, ignorepattern):
         self._ignorepattern = ignorepattern
 
     def setshowrepattern(self, showrepattern):
         self._showrepattern = showrepattern
+    def setskiprepattern(self, skiprepattern):
+        self._skiprepattern = skiprepattern
 
 class JsonParser(Parser):
     """Parser for a custom JSON representation of profile data.
@@ -2066,9 +2057,12 @@ class PerfParser(LineParser):
 
         for idx in range(len(callnamechain) - 1, -1, -1):
             function = self.profile.functions[callnamechain[idx]]
-            if self.ignore(function.id):break
-            callchain.append(function)
-            if self.showre(function.id):break
+            if self.isfunctioninpattern(function.id,self._ignorepattern):break
+            if self.isfunctioninpattern(function.id,self._skiprepattern) == False:
+                callchain.append(function)
+            else:
+                continue
+            if self.isfunctioninpattern(function.id, self._showrepattern):break
 
 
         if self.lookahead() == '':
@@ -3311,6 +3305,11 @@ def main():
         dest="ignore", default="",
         help="Regular expressions of functions to ignore")
     optparser.add_option(
+        '-k','--skip-re',
+        type="string",
+        dest="skip", default="",
+        help="Regular expressions of functions to skip")
+    optparser.add_option(
         '-y','--show-re',
         type="string",
         dest="showre", default="",
@@ -3362,6 +3361,8 @@ def main():
         parser.setignorepattern(options.ignore)
     if options.showre:
         parser.setshowrepattern(options.showre)
+    if options.skip:
+        parser.setskiprepattern(options.skip)
 
     profile = parser.parse()
 
