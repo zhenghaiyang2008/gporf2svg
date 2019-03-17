@@ -3312,17 +3312,17 @@ def main():
         '-j','--ignore-re',
         type="string",
         dest="ignore", default="",
-        help="Regular expressions of functions to ignore")
+        help="Regular expressions of functions to ignore, -j func_ign1;func_ign2")
     optparser.add_option(
         '-k','--skip-re',
         type="string",
         dest="skip", default="",
-        help="Regular expressions of functions to skip")
+        help="Regular expressions of functions to skip, -k func_skip1;func_skip2")
     optparser.add_option(
         '-y','--show-re',
         type="string",
         dest="showre", default="",
-        help="Regular expressions of functions to show but not traverse")
+        help="Regular expressions of functions to show but not traverse, -y func_show1;func_show2")
     # add option for filtering by file path
     optparser.add_option(
         '-p', '--path', action="append",
