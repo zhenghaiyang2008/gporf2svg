@@ -377,8 +377,17 @@ class Profile(Object):
         self.functions = pathFunctions
 
     def getFunctionIds(self, funcName):
+        find_function_name = []
         function_names = {v.name: k for (k, v) in self.functions.items()}
-        return [function_names[name] for name in fnmatch.filter(function_names.keys(), funcName)]
+        fields = re.split(r';', funcName)
+        for function_id in function_names:
+            for field in fields:
+                # ignore the nodes
+                if field == "":continue
+                if re.findall(field,function_id):
+                    find_function_name.append(function_id)
+
+        return find_function_name
 
     def getFunctionId(self, funcName):
         for f in self.functions:
